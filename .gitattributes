@@ -1,0 +1,7 @@
+*.ipynb filter=nbstripout diff=ipynb
+*.tex   text eol=lf diff=tex
+*.bib   text eol=lf
+*.py    text eol=lf
+
+*.zpln filter=nbstripout
+*.ipynb diff=ipynb

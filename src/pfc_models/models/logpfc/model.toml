@@ -1,0 +1,21 @@
+[model]
+name           = "logpfc"
+title          = "log-PFC, 2D spectral, GPU"
+family         = "log-PFC"
+fields         = ["phi"]
+dimensionality = 2
+discretization = "spectral"
+boundaries     = "periodic"
+backend        = "cupy_cuda"
+precision      = "float64"
+stepper        = "ETD"
+order          = 1
+external_V     = false
+status          = "active"
+
+[provenance]
+source  = "Z:/active-research/phase-field-crystal/log/gpu-spectral-base-implementation"
+migrated = false
+
+[usage]
+papers = []

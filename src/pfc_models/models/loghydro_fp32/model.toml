@@ -1,0 +1,21 @@
+[model]
+name           = "loghydro_fp32"
+title          = "log-hydrodynamic PFC, single precision"
+family         = "log-hydro-PFC"
+fields         = ["phi", "v"]
+dimensionality = 2
+discretization = "spectral"
+boundaries     = "periodic"
+backend        = "cupy_cuda"
+precision      = "float32"
+stepper        = "ETD"
+order          = 1
+external_V     = false
+status          = "active"
+
+[provenance]
+source  = "Z:/active-research/phase-field-crystal/log-hydro/gpu-spectral-base-implementation-single-precision"
+migrated = false
+
+[usage]
+papers = []

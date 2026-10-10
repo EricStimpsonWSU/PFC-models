@@ -1,0 +1,21 @@
+[model]
+name           = "logpfc_extv"
+title          = "log-PFC with external potential (vacancy forcing)"
+family         = "log-PFC"
+fields         = ["phi"]
+dimensionality = 2
+discretization = "spectral"
+boundaries     = "periodic"
+backend        = "cupy_cuda"
+precision      = "float64"
+stepper        = "ETD"
+order          = 1
+external_V     = true
+status          = "active"
+
+[provenance]
+source  = "Z:/active-research/phase-field-crystal/log/gpu-spectral-extV-implementation"
+migrated = false
+
+[usage]
+papers = []

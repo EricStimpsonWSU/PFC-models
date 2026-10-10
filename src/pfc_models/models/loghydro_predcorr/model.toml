@@ -1,0 +1,21 @@
+[model]
+name           = "loghydro_predcorr"
+title          = "log-hydrodynamic PFC, predictor-corrector"
+family         = "log-hydro-PFC"
+fields         = ["phi", "v"]
+dimensionality = 2
+discretization = "spectral"
+boundaries     = "periodic"
+backend        = "cupy_cuda"
+precision      = "float64"
+stepper        = "predictor-corrector"
+order          = 1
+external_V     = false
+status          = "active"
+
+[provenance]
+source  = "Z:/active-research/phase-field-crystal/log-hydro/gpu-spectral-base-implementation-with-predictor-corrector"
+migrated = false
+
+[usage]
+papers = []

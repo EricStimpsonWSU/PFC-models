@@ -1,0 +1,21 @@
+[model]
+name           = "logpfc_cpu"
+title          = "log-PFC, 2D spectral, CPU (numba + pyfftw)"
+family         = "log-PFC"
+fields         = ["phi"]
+dimensionality = 2
+discretization = "spectral"
+boundaries     = "periodic"
+backend        = "numpy_fftw"
+precision      = "float64"
+stepper        = "ETD"
+order          = 1
+external_V     = false
+status          = "active"
+
+[provenance]
+source  = "Z:/active-research/phase-field-crystal/log/cpu-spectral-base-implementation"
+migrated = false
+
+[usage]
+papers = []

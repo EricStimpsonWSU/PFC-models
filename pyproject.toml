@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pfc-models"
+version = "0.0.0"
+description = "Phase-field-crystal model catalogue: shared substrate plus one self-contained model per variant"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+gpu  = ["cupy-cuda12x"]
+cpu  = ["pyfftw", "numba"]
+dev  = ["pytest", "ruff", "nbstripout"]
+viz  = ["matplotlib", "plotly"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"pfc_models" = ["models/*/model.toml", "models/*/model.md"]
+
+[tool.ruff]
+line-length = 100

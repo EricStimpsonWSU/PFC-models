@@ -1,0 +1,50 @@
+# ── environments ──
+.venv/
+.venvFFTW/
+venv/
+ENV/
+env/
+.env
+
+# ── python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.pytest_cache/
+
+# ── notebooks ──
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+~*.ipynb
+
+# ── editors / os ──
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# ── simulation output: none of it belongs in a repo ──
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.mat
+*.sqlite
+
+# ── rendered output ──
+*.mp4
+*.webm
+*.gif
+
+# ── run directories ──
+frames/
+runs/
+**/Nx=*/
+**/V0=*/
+**/eta=*/
+
+# ── generated catalogue outputs are committed; the scratch ones are not ──
+docs/_scratch/
