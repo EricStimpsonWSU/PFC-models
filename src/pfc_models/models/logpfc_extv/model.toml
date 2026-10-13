@@ -15,7 +15,9 @@ status          = "active"
 
 [provenance]
 source  = "Z:/active-research/phase-field-crystal/log/gpu-spectral-extV-implementation"
-migrated = false
+migrated = true
+reduced  = true
+deferred = ["fd-laplacian", "predictor-corrector"]
 
 [usage]
 papers = []

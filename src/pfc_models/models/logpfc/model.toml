@@ -15,7 +15,7 @@ status          = "active"
 
 [provenance]
 source  = "Z:/active-research/phase-field-crystal/log/gpu-spectral-base-implementation"
-migrated = false
+migrated = true
 
 [usage]
 papers = []

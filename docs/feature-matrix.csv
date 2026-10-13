@@ -2,6 +2,6 @@ name,family,fields,dimensionality,discretization,boundaries,backend,precision,st
 loghydro,log-hydro-PFC,phi+v,2,spectral,periodic,cupy_cuda,float64,ETD,1,no,active,no,—,Z:/active-research/phase-field-crystal/log-hydro/gpu-spectral-base-implementation
 loghydro_fp32,log-hydro-PFC,phi+v,2,spectral,periodic,cupy_cuda,float32,ETD,1,no,active,no,—,Z:/active-research/phase-field-crystal/log-hydro/gpu-spectral-base-implementation-single-precision
 loghydro_predcorr,log-hydro-PFC,phi+v,2,spectral,periodic,cupy_cuda,float64,predictor-corrector,1,no,active,no,—,Z:/active-research/phase-field-crystal/log-hydro/gpu-spectral-base-implementation-with-predictor-corrector
-logpfc,log-PFC,phi,2,spectral,periodic,cupy_cuda,float64,ETD,1,no,active,no,—,Z:/active-research/phase-field-crystal/log/gpu-spectral-base-implementation
-logpfc_cpu,log-PFC,phi,2,spectral,periodic,numpy_fftw,float64,ETD,1,no,active,no,—,Z:/active-research/phase-field-crystal/log/cpu-spectral-base-implementation
-logpfc_extv,log-PFC,phi,2,spectral,periodic,cupy_cuda,float64,ETD,1,yes,active,no,—,Z:/active-research/phase-field-crystal/log/gpu-spectral-extV-implementation
+logpfc,log-PFC,phi,2,spectral,periodic,cupy_cuda,float64,ETD,1,no,active,yes,—,Z:/active-research/phase-field-crystal/log/gpu-spectral-base-implementation
+logpfc_cpu,log-PFC,phi,2,spectral,periodic,numpy_fftw,float64,ETD,1,no,active,yes,—,Z:/active-research/phase-field-crystal/log/cpu-spectral-base-implementation
+logpfc_extv,log-PFC,phi,2,spectral,periodic,cupy_cuda,float64,ETD,1,yes,active,yes,—,Z:/active-research/phase-field-crystal/log/gpu-spectral-extV-implementation

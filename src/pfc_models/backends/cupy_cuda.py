@@ -1,23 +1,32 @@
 """CuPy / CUDA (NVIDIA GPU) backend.
 
-Sibling of the other modules in `pfc_models.backends`. Every backend module
-exposes the same names so a model can select one at construction time:
+Sibling of the other modules in `pfc_models.backends`. Carries the host and
+device dtype aliases; the FFT half of the backend contract
+(`fftn`/`rfftn`/`to_numpy`/`xp`) is deliberately absent, because the migrated
+models call `cp.fft` directly in `_SimulationState` exactly as the source forks
+did. Providing a dispatch layer the models do not use would be new code, not a
+relocation.
 
-    xp          array module (numpy, cupy, torch, ...)
-    fftn/ifftn  forward/inverse n-D FFT on real input
-    rfftn/irfftn
-    to_numpy(a) host copy as a numpy array
-    available() -> bool
-    name        str
-
-Nothing here is a base class and nothing imports another backend. Add a new
-backend by adding a sibling file that satisfies the same names.
-
-STUB — not implemented. Migrate from any of the GPU forks; they agree here.
+Provenance: log/gpu-spectral-base-implementation/DataTypes.py (byte-identical to
+the gpu-spectral-extV copy).
 """
+
+# numerics
+import numpy as np
+import cupy as cp
+
+# numerical types used in simulation
+npFloatType = np.float64
+npComplexType = np.complex128
+cpFloatType = cp.float64
+cpComplexType = cp.complex128
 
 name = "cupy_cuda"
 
 
 def available() -> bool:
-    raise NotImplementedError("cupy_cuda backend not implemented yet")
+    try:
+        import cupy
+        return cupy.cuda.runtime.getDeviceCount() > 0
+    except Exception:
+        return False

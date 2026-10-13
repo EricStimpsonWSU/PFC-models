@@ -1,23 +1,28 @@
 """NumPy + PyFFTW (CPU) backend.
 
-Sibling of the other modules in `pfc_models.backends`. Every backend module
-exposes the same names so a model can select one at construction time:
+Sibling of the other modules in `pfc_models.backends`. Carries the host dtype
+aliases; the FFT half of the backend contract (`fftn`/`rfftn`/`to_numpy`/`xp`)
+is deliberately absent, because the migrated models plan and call their
+transforms directly in `_SimulationState` exactly as the source forks did.
+Providing a dispatch layer the models do not use would be new code, not a
+relocation.
 
-    xp          array module (numpy, cupy, torch, ...)
-    fftn/ifftn  forward/inverse n-D FFT on real input
-    rfftn/irfftn
-    to_numpy(a) host copy as a numpy array
-    available() -> bool
-    name        str
-
-Nothing here is a base class and nothing imports another backend. Add a new
-backend by adding a sibling file that satisfies the same names.
-
-STUB — not implemented. Migrate from the CPU fork's pyfftw plan setup.
+Provenance: log/cpu-spectral-base-implementation/DataTypes.py
 """
+
+# numerics
+import numpy as np
+
+# numerical types used in simulation
+npFloatType = np.float64
+npComplexType = np.complex128
 
 name = "numpy_fftw"
 
 
 def available() -> bool:
-    raise NotImplementedError("numpy_fftw backend not implemented yet")
+    try:
+        import pyfftw  # noqa: F401
+    except ImportError:
+        return False
+    return True
