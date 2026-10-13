@@ -7,14 +7,14 @@ name = "pfc-models"
 version = "0.0.0"
 description = "Phase-field-crystal model catalogue: shared substrate plus one self-contained model per variant"
 requires-python = ">=3.10"
-dependencies = ["numpy"]
+dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]
-gpu  = ["cupy-cuda12x"]
-cpu  = ["pyfftw", "numba"]
-dev  = ["pytest", "ruff", "nbstripout"]
-viz  = ["matplotlib", "plotly"]
-
+gpu      = ["cupy-cuda12x"]
+cpu      = ["pyfftw", "numba"]
+analysis = ["h5py", "scikit-image"]
+viz      = ["matplotlib", "plotly", "ipython"]
+dev      = ["pytest", "ruff", "nbstripout"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
