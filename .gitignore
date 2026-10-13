@@ -38,6 +38,9 @@ desktop.ini
 *.mp4
 *.webm
 *.gif
+*.png
+*.jpg
+*.pdf
 
 # ── run directories ──
 frames/
