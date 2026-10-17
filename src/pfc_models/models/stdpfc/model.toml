@@ -1,0 +1,23 @@
+[model]
+name           = "stdpfc"
+title          = "standard PFC, 2D spectral, GPU"
+family         = "standard-PFC"
+fields         = ["n"]
+dimensionality = 2
+discretization = "spectral"
+boundaries     = "periodic"
+backend        = "cupy_cuda"
+precision      = "float64"
+stepper        = "ETD"
+order          = 1
+external_V     = false
+status         = "active"
+
+[provenance]
+# Authored in-repo, not migrated from the legacy tree; `migrated = true` records
+# that nothing is pending from elsewhere.
+source   = "authored in-repo from models/logpfc; physics per papers/2026-log-pfc/derivations/c1-positive-density/01-model-parameter-conversion.md section 2"
+migrated = true
+
+[usage]
+papers = []

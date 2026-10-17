@@ -1,297 +1,411 @@
 {
  "geometry_2d.py::Build2DGeometry": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.__init__": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.px_to_x": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.py_to_y": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.x_to_ix": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.x_to_px": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.y_to_iy": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "geometry_2d.py::Geometry.y_to_py": [
   [
-   "discretization/spectral"
+   "src/pfc_models/discretization/spectral"
   ]
  ],
  "simulation.py::BuildCupyGPU_Simulation": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc"
   ]
  ],
  "simulation.py::BuildGeometry": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::BuildLogPFCModelParameters": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu"
   ]
  ],
  "simulation.py::BuildLogPFCModel_withVacancyForce_Parameters": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ]
+ ],
+ "simulation.py::BuildNumpyCPU_Simulation": [
+  [
+   "src/pfc_models/models/stdpfc_cpu"
+  ]
+ ],
+ "simulation.py::BuildStdPFCModelParameters": [
+  [
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::GetLinearKernel_mu": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ]
+ ],
+ "simulation.py::GetLinearKernel_n": [
+  [
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::GetLinearKernel_phi": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::ModelParameters.__init__": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::ModelParameters.__setattr__": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation.CalculateChemicalPotential": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation.CalculateFreeEnergy": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation.GetForce": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ]
+ ],
+ "simulation.py::Simulation.Get_local_n": [
+  [
+   "src/pfc_models/models/stdpfc"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation.Get_local_phi": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation.OptimizeM": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation.TimeStep": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation.ValidatePhiRange": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation._Batch1_CalcNonlinMu": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/stdpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/stdpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation._Batch2_CalcMu_Terms": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/stdpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/stdpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ]
+ ],
+ "simulation.py::Simulation._Batch3_CalcNNext": [
+  [
+   "src/pfc_models/models/stdpfc"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation._Batch3_CalcPhiNext": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation._CalcLapV": [
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation._CalcMu_Terms_kSpace": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
+  ]
+ ],
+ "simulation.py::Simulation._CalcNNext": [
+  [
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation._CalcNonlinMu": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation._CalcPhiNext": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "simulation.py::Simulation.__init__": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::Simulation.t": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::_SimulationState.__init__": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
+  ]
+ ],
+ "simulation.py::_n_next_parallel": [
+  [
+   "src/pfc_models/models/stdpfc_cpu"
+  ]
+ ],
+ "simulation.py::_n_next_serial": [
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::_nonlin_mu_parallel": [
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::_nonlin_mu_serial": [
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::_phi_next_parallel": [
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ]
  ],
  "simulation.py::_phi_next_serial": [
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ]
  ],
  "simulation.py::calc_mu_terms_kspace_impl": [
   [
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
+  ]
+ ],
+ "simulation.py::calc_n_next_impl": [
+  [
+   "src/pfc_models/models/stdpfc"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::calc_nonlin_mu_impl": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
+  ],
+  [
+   "src/pfc_models/models/stdpfc"
+  ],
+  [
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ],
  "simulation.py::calc_phi_next_impl": [
   [
-   "models/logpfc"
+   "src/pfc_models/models/logpfc"
   ],
   [
-   "models/logpfc_cpu"
+   "src/pfc_models/models/logpfc_cpu"
   ],
   [
-   "models/logpfc_extv"
+   "src/pfc_models/models/logpfc_extv"
   ]
  ],
  "test_regression.py::test_free_energy_at_fixed_step": [
   [
-   "models/loghydro",
-   "models/loghydro_fp32",
-   "models/loghydro_predcorr",
-   "models/logpfc",
-   "models/logpfc_cpu",
-   "models/logpfc_extv"
+   "src/pfc_models/models/loghydro",
+   "src/pfc_models/models/loghydro_fp32",
+   "src/pfc_models/models/loghydro_predcorr",
+   "src/pfc_models/models/logpfc",
+   "src/pfc_models/models/logpfc_cpu",
+   "src/pfc_models/models/logpfc_extv",
+   "src/pfc_models/models/stdpfc",
+   "src/pfc_models/models/stdpfc_cpu"
   ]
  ]
 }

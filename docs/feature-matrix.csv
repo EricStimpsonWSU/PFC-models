@@ -5,3 +5,5 @@ loghydro_predcorr,log-hydro-PFC,phi+v,2,spectral,periodic,cupy_cuda,float64,pred
 logpfc,log-PFC,phi,2,spectral,periodic,cupy_cuda,float64,ETD,1,no,active,yes,—,Z:/active-research/phase-field-crystal/log/gpu-spectral-base-implementation
 logpfc_cpu,log-PFC,phi,2,spectral,periodic,numpy_fftw,float64,ETD,1,no,active,yes,—,Z:/active-research/phase-field-crystal/log/cpu-spectral-base-implementation
 logpfc_extv,log-PFC,phi,2,spectral,periodic,cupy_cuda,float64,ETD,1,yes,active,yes,—,Z:/active-research/phase-field-crystal/log/gpu-spectral-extV-implementation
+stdpfc,standard-PFC,n,2,spectral,periodic,cupy_cuda,float64,ETD,1,no,active,yes,—,authored in-repo from models/logpfc; physics per papers/2026-log-pfc/derivations/c1-positive-density/01-model-parameter-conversion.md section 2
+stdpfc_cpu,standard-PFC,n,2,spectral,periodic,numpy_fftw,float64,ETD,1,no,active,yes,—,authored in-repo from models/logpfc_cpu; physics per papers/2026-log-pfc/derivations/c1-positive-density/01-model-parameter-conversion.md section 2
