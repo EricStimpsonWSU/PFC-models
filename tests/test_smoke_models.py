@@ -43,6 +43,16 @@ decrease. Two reasons, both in the model as migrated:
 Asserting monotonicity there would be asserting something the physics does not
 promise. It gets the finiteness, positivity and mass-conservation checks
 instead.
+
+The standard-PFC family
+-----------------------
+`test_stdpfc_cpu_relaxes` and `test_stdpfc_relaxes` cover the standard branch,
+whose density field is `n` rather than `phi`. They use sibling helpers and their
+own state point; see the comment block above them. Model-specific checks that go
+beyond stability - the closed-form free energy of a single mode, ETD1 exactness
+in the linear regime, and the removability of the cubic term - live beside those
+models in `models/stdpfc*/test_regression.py`, not here: this file is for the
+numeric-stability statement that every model owes, one test per model.
 """
 import numpy as np
 import pytest
@@ -178,6 +188,111 @@ def test_logpfc_extv_runs():
 
     free_energy, mass = _march(sim)
     _assert_sane(free_energy, mass, float(sim.State.phi.min()))
+
+
+# --------------------------------------------------------------------------
+# standard-PFC family
+# --------------------------------------------------------------------------
+# The density field here is `n`, not `phi`. The standard branch Taylor-expands
+# the entropic term, so there is no logarithm, no positivity invariant to assert,
+# and the state point is the alpha = 1 image of the log one above (derivation
+# 01-model-parameter-conversion.md section 5.2):
+#
+#   beta_s = (3/4)^(1/2) beta_l                  eps_s = (3/4)^(1/2) (eps_l + 2 g_l + 4)
+#   g_s    = (3/4)^(3/4) (g_l + 5/2)             n     = (3/4)^(1/4) (phi - 1)
+#
+# so the log family's (0.5, -0.9, -2.0, 0.55, 0.3, 0.15) maps to the constants
+# below and the two families relax from corresponding configurations.
+#
+# `_seed_crystal`, `_march` and `_assert_sane` above key on `State.phi` and
+# `_assert_sane` asserts positivity, so the three siblings below are separate
+# rather than a generalisation: the log tests are left exactly as they were.
+# `_assert_relaxes` is field-agnostic and is reused.
+#
+# Measured at Nx = 264, central-vacancy IC, 100 steps at dt = 0.1: 0 of 100 steps
+# rise, largest step change -1.8e-07, net -2.8e-02, mass drift 5.6e-16, 4.5 s.
+# Unlike logpfc, stdpfc also stays monotonic at Nx = 132; the grid is kept at the
+# notebooks' value anyway so the test measures what the notebooks run.
+
+C12, C34, C14 = (3/4)**0.5, (3/4)**0.75, (3/4)**0.25
+STD_BETA = C12 * 0.5                            # 0.433013
+STD_EPSILON = C12 * (-0.9 + 2*(-2.0) + 4)       # -0.779423
+STD_G = C34 * (-2.0 + 2.5)                      # 0.402964
+STD_MEAN_DENSITY_SOLID = C14 * (0.55 - 1)       # -0.418772
+STD_MEAN_DENSITY_VACANCY = C14 * (0.30 - 1)     # -0.651423
+STD_AMPLITUDE = C14 * 0.15                      # 0.139591
+
+
+def _seed_crystal_n(sim, geometry):
+    """`_seed_crystal` for the models whose density field is called `n`."""
+    from pfc_models.fields.initial_conditions_2d import (
+        GeneratePerfectCrystalInitialWithCentralVacancy,
+    )
+    n0 = GeneratePerfectCrystalInitialWithCentralVacancy(
+        geometry, STD_MEAN_DENSITY_SOLID, STD_MEAN_DENSITY_VACANCY,
+        A0=STD_AMPLITUDE, q0=Q0,
+    )
+    target = sim.State.n
+    if type(target).__module__.startswith("cupy"):
+        import cupy as cp
+        n0 = cp.asarray(n0, dtype=target.dtype)
+    target[...] = n0
+
+
+def _march_n(sim, nsteps=NSTEPS):
+    """`_march` for the models whose density field is called `n`."""
+    free_energy = [float(sim.CalculateFreeEnergy())]
+    mass = [float(sim.State.n.mean())]
+    for _ in range(nsteps):
+        sim.TimeStep()
+        free_energy.append(float(sim.CalculateFreeEnergy()))
+        mass.append(float(sim.State.n.mean()))
+    return np.array(free_energy), np.array(mass)
+
+
+def _assert_sane_n(free_energy, mass):
+    """`_assert_sane` without the positivity check: `n` is unbounded below by design."""
+    assert np.isfinite(free_energy).all(), "free energy went non-finite"
+    assert np.isfinite(mass).all(), "mean density went non-finite"
+    drift = float(mass.max() - mass.min())
+    assert drift < MASS_TOL, f"mass not conserved: drift {drift:.3e}"
+
+
+def test_stdpfc_cpu_relaxes():
+    """standard PFC on NumPy + PyFFTW + Numba."""
+    pytest.importorskip("pyfftw", reason="CPU runtime only")
+    pytest.importorskip("numba", reason="CPU runtime only")
+    from pfc_models.models.stdpfc_cpu import simulation as sim_mod
+
+    geometry = sim_mod.Build2DGeometry(Nx=NX, Ny=NY, Lx=LX, Ly=LY)
+    params = sim_mod.BuildStdPFCModelParameters(
+        Gamma=1.0, beta=STD_BETA, q0=Q0, epsilon=STD_EPSILON, g=STD_G,
+        dt=DT, meanDensity=STD_MEAN_DENSITY_SOLID,
+    )
+    sim = sim_mod.BuildNumpyCPU_Simulation(params, geometry, nThreads=4)
+    _seed_crystal_n(sim, geometry)
+
+    free_energy, mass = _march_n(sim)
+    _assert_sane_n(free_energy, mass)
+    _assert_relaxes(free_energy)
+
+
+def test_stdpfc_relaxes():
+    """standard PFC on CuPy. Same scheme as stdpfc_cpu; only the array module differs."""
+    pytest.importorskip("cupy", reason="GPU runtime only")
+    from pfc_models.models.stdpfc import simulation as sim_mod
+
+    geometry = sim_mod.Build2DGeometry(Nx=NX, Ny=NY, Lx=LX, Ly=LY)
+    params = sim_mod.BuildStdPFCModelParameters(
+        Gamma=1.0, beta=STD_BETA, q0=Q0, epsilon=STD_EPSILON, g=STD_G,
+        dt=DT, meanDensity=STD_MEAN_DENSITY_SOLID,
+    )
+    sim = sim_mod.BuildCupyGPU_Simulation(params, geometry)
+    _seed_crystal_n(sim, geometry)
+
+    free_energy, mass = _march_n(sim)
+    _assert_sane_n(free_energy, mass)
+    _assert_relaxes(free_energy)
 
 
 def test_geometry_contract():
