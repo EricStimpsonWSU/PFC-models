@@ -5,6 +5,7 @@ copy, imported by four extV notebooks. Its `_AtomTracker` is structurally
 identical to the one inside `_trackers.py`, which nothing imports and which is
 not migrated.
 """
+
 # numerics
 from dataclasses import dataclass
 
@@ -70,8 +71,6 @@ class _AtomTracker:
     """
     Locate atom in the local density field using estimated starting position.
     """
-    a = self.Geometry.a
-
     # Find the nearest grid point to the estimated position
     nx, ny = self.Geometry.x_to_ix(x0), self.Geometry.y_to_iy(y0)
 
@@ -90,8 +89,8 @@ class _AtomTracker:
     phi_mid = neighborhood_3x3[1, 1]
     phi_left = neighborhood_3x3[1, 0]
     phi_right = neighborhood_3x3[1, 2]
-    phi_up = neighborhood_3x3[0, 1]
-    phi_down = neighborhood_3x3[2, 1]
+    phi_up = neighborhood_3x3[2, 1]
+    phi_down = neighborhood_3x3[0, 1]
 
     # x0, y0 to parabolic interpolation max
     denom_x = 2 * (phi_left + phi_right - 2 * phi_mid)
@@ -177,13 +176,13 @@ class _AtomTracker:
     for i, (t, x_old, y_old) in enumerate(self.atomCoords):
       # 1. Locate the new position
       x_new, y_new = self.LocateAtom(phi, x_old, y_old)
-      
+
       # 2. Calculate the component velocities
       vx = (x_new - x_old) / deltaT
       vy = (y_new - y_old) / deltaT
-      
+
       # 3. Update the persistent current coordinates
       self.atomCoords[i] = [t + deltaT, x_new, y_new]
-      
+
       # 4. Append the requested 4-tuple to this atom's trajectory list
       self.atomTrajectories[i].append((t + deltaT, x_new, y_new, vx, vy))
