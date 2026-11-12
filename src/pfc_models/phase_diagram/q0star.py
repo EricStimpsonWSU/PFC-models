@@ -51,10 +51,23 @@ bit-identical to the original); commit B fixes those marked with a B hunk
 * D5  `Find_q0Star` counted fitness AND amplitude, fitted fitness only.   [B5]
 * D6  The argmin over the filtered f values indexed the unfiltered range. [B3]
 * D7  Any root of the spline derivative was accepted, maxima included.    [B4]
-* D8  "Insufficient points" fires at `size <= minPoints`: minPoints accepted
-      points are not enough. Kept (user decision, review item 9a).
+* D8  "Insufficient points" fired at `size <= minPoints`: minPoints accepted
+      points were not enough.                                           [C]
 * B6  adds a guard the original lacked: the spline uses only the contiguous
       accepted run around the argmin, and minPoints applies to that run.
+
+Commit C (user decisions, review items 8 and 9a, 2026-11-12):
+
+* C1  `fTol` is relative: a block converges when |delta f| <= fTol |f| (and
+      |delta A| <= ATol A); rollback when delta f > fTol |f| or f is NaN.
+* C2  deterministic ansatz noise (item 8): a fresh ansatz is multiplied by
+      1 + noise N(0, 1) from `np.random.default_rng(seed)`, mean restored
+      (defaults seed 0, noise 1e-10; noise 0 disables). Lower-edge outcomes no
+      longer depend on which modes machine round-off seeds. seed and noise are
+      written to qscan.npz.
+* C3  (D8, item 9a) minPoints means "at least minPoints accepted points"
+      (`size < minPoints`). The default becomes 5, the effective threshold
+      the old default 4 had.
 """
 from __future__ import annotations
 
@@ -91,8 +104,8 @@ FMIN_FILE = 'fmin.npz'
 QSCAN_FILE = 'qscan.npz'
 
 # Why one Get_f_ABC evaluation stopped (B2): MinimizeFreeEnergy.last_stop, record 'stop'
-STOP_CONVERGED = 'converged'          # |delta f| <= fTol and |delta A| <= ATol A over one block
-STOP_MAX_DEPTH = 'max_depth'          # rollback recursion exhausted on delta f > fTol
+STOP_CONVERGED = 'converged'          # |delta f| <= fTol |f| and |delta A| <= ATol A over one block
+STOP_MAX_DEPTH = 'max_depth'          # rollback recursion exhausted on delta f > fTol |f|
 STOP_NAN = 'nan'                      # rollback recursion exhausted on a NaN free energy
 STOP_POOR_FIT = 'poor_fit'            # fitness < requiredFitness
 STOP_MIN_AMPLITUDE = 'min_amplitude'  # amplitudes[0] < minimumA
@@ -120,8 +133,12 @@ class RelaxSettings:
     # B2 convergence per stepT block. Measured (review sec. 2): the post-convergence
     # drift is ~7e-15 per block (triangle) and ~1e-13 (honeycomb, phi 1.2), so 1e-15
     # fails the triangle and 1e-14 the honeycomb; f alone falsely converges L2H seeds.
-    fTol: float = 1e-12   # |delta f| for convergence; rollback only if delta f > fTol (or NaN)
+    # C1: fTol is relative to |f| (|f| ~ 0.4-0.8 here, so ~0.4-0.8e-12 absolute).
+    fTol: float = 1e-12   # |delta f| <= fTol |f| for convergence; rollback only if delta f > fTol |f| (or NaN)
     ATol: float = 1e-6    # |delta A| <= ATol * A for convergence, A = amplitudes[0]
+    # C2 (item 8): relative ansatz noise from default_rng(seed); noise = 0 disables
+    seed: int = 0
+    noise: float = 1e-10
 
 
 @dataclass(frozen=True)
@@ -134,7 +151,7 @@ class QScanSettings:
     q00_Steps: int
     Deltaq_Refinement: float
     q00_start: float = 1.0
-    minPoints: int = 4
+    minPoints: int = 5   # C3: at least minPoints accepted points (old default 4 under `<=`)
 
 
 @dataclass(frozen=True)
@@ -178,6 +195,8 @@ class MinimizeFreeEnergy():
         self.minimumA = relax.minimumA
         self.fTol = relax.fTol
         self.ATol = relax.ATol
+        self.seed = relax.seed
+        self.noise = relax.noise
         self.last_stop, self.last_steps = None, 0
 
         # q0* fitting parameters
@@ -207,6 +226,18 @@ class MinimizeFreeEnergy():
             state=densityField,
             nThreads=1,
         )
+        # C2 (item 8): deterministic relative noise on a fresh ansatz, mean restored.
+        # One fresh stream per ansatz, so every q00 point sees the same draws.
+        if densityField is None and self.noise:
+            rng = np.random.default_rng(self.seed)
+            state = self.adapter.get_state(sim)
+            fields = state if isinstance(state, tuple) else (state,)
+            noisy = []
+            for phi in fields:  # each field in order, from the one stream
+                mean = phi.mean()
+                phi = phi * (1.0 + self.noise*rng.standard_normal(phi.shape))
+                noisy.append(phi + (mean - phi.mean()))
+            self.adapter.set_state(sim, tuple(noisy) if isinstance(state, tuple) else noisy[0])
 
         # Built...
         if verbose:
@@ -233,7 +264,7 @@ class MinimizeFreeEnergy():
         delta_f = f - fLast
         t = ad.get_time(sim)
 
-        if np.isnan(f) or delta_f > self.fTol:  # B2: was `delta_f >= 0 or np.isnan(f)`
+        if np.isnan(f) or delta_f > self.fTol*abs(fLast):  # B2: was `delta_f >= 0 or np.isnan(f)`; C1 relative
             # revert density field and time
             if verbose:
                 print(f'rollback: t={t:0.6f}, Δt={ad.get_dt(sim):0.3e}, f={f:0.18f}, Δf={delta_f:0.5e}')
@@ -267,7 +298,7 @@ class MinimizeFreeEnergy():
     def Get_f_ABC(self, temp, meanDensity, q00, maxDepth=None, verbose=False):
         """Relax the ansatz at fixed box scale q00; return (f, fitness, *amplitudes).
 
-        B2: stepT blocks until a stop. Converged: |delta f| <= fTol and
+        B2: stepT blocks until a stop. Converged: |delta f| <= fTol |f| (C1) and
         |delta A| <= ATol * A over one block (A = amplitudes[0]). Only
         MaxDepthReached is caught. Why the evaluation stopped (STOP_*) is left in
         `self.last_stop` and its time-step count in `self.last_steps`; Find_q0Star
@@ -315,7 +346,7 @@ class MinimizeFreeEnergy():
                     print(f'Poor fit: A={A:0.2e} < min A')
                 self.last_stop = STOP_MIN_AMPLITUDE
                 break
-            if abs(delta_f) <= self.fTol and abs(A - A_last) <= self.ATol*A:
+            if abs(delta_f) <= self.fTol*abs(fLast) and abs(A - A_last) <= self.ATol*A:  # C1
                 self.last_stop = STOP_CONVERGED
                 break
             A_last = A
@@ -361,8 +392,8 @@ class MinimizeFreeEnergy():
             counted = (fit_values>=rf) & (A_values>=self.minimumA)
             fitted = counted
 
-            # D8: minPoints accepted points are reported as insufficient
-            if q00_range[counted].size <= minPoints:
+            # C3 (D8): at least minPoints accepted points
+            if q00_range[counted].size < minPoints:
                 raise InsufficientPoints(MSG_INSUFFICIENT_POINTS)
 
             # B3 (D6): the argmin indexes the filtered values, so read q00 from the filtered range
@@ -378,7 +409,7 @@ class MinimizeFreeEnergy():
                 run_lo -= 1
             while run_hi < fitted.size-1 and fitted[run_hi+1]:
                 run_hi += 1
-            if run_hi - run_lo + 1 <= minPoints:
+            if run_hi - run_lo + 1 < minPoints:  # C3
                 raise InsufficientPoints(MSG_INSUFFICIENT_POINTS)
             run = np.zeros_like(fitted)
             run[run_lo:run_hi+1] = True
@@ -424,7 +455,7 @@ def _fmin_arrays(phi, q0star, fmin, status, message, wall_s):
     }
 
 
-def _qscan_arrays(rows, n_amplitudes):
+def _qscan_arrays(rows, n_amplitudes, seed=None, noise=None):
     k = n_amplitudes
     if rows:
         k = max(len(r['amplitudes']) for r in rows)
@@ -440,6 +471,9 @@ def _qscan_arrays(rows, n_amplitudes):
         'amplitudes': amplitudes,
         'stop': np.asarray([r.get('stop', '') for r in rows], dtype=str),
         'steps': np.asarray([r.get('steps', -1) for r in rows], dtype=np.int64),
+        # C2: the ansatz-noise provenance of every row (-1 / NaN: not recorded)
+        'seed': np.asarray(-1 if seed is None else seed, dtype=np.int64),
+        'noise': np.asarray(np.nan if noise is None else noise, dtype=float),
     }
 
 
@@ -469,6 +503,10 @@ def _load_checkpoint(checkpoint, phi):
                          'stop': str(q['stop'][j]) if 'stop' in q else '',
                          'steps': int(q['steps'][j]) if 'steps' in q else -1})
     return old, done, rows
+
+
+def _noise_prov(minimizer):
+    return getattr(minimizer, 'seed', None), getattr(minimizer, 'noise', None)
 
 
 def scan_density(minimizer, temp, densities, checkpoint=None, verbose=False):
@@ -533,10 +571,10 @@ def scan_density(minimizer, temp, densities, checkpoint=None, verbose=False):
         if checkpoint is not None:
             # q-scan first: a crash between the two writes leaves rows without a
             # status, which a resume drops and redoes
-            _save_npz_atomic(os.path.join(checkpoint, QSCAN_FILE), _qscan_arrays(rows, n_amplitudes))
+            _save_npz_atomic(os.path.join(checkpoint, QSCAN_FILE), _qscan_arrays(rows, n_amplitudes, *_noise_prov(minimizer)))
             _save_npz_atomic(os.path.join(checkpoint, FMIN_FILE),
                              _fmin_arrays(phi, q0star, fmin, status, message, wall_s))
 
     result = _fmin_arrays(phi, q0star, fmin, status, message, wall_s)
-    result['qscan'] = _qscan_arrays(rows, n_amplitudes)
+    result['qscan'] = _qscan_arrays(rows, n_amplitudes, *_noise_prov(minimizer))
     return result

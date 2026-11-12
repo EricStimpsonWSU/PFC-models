@@ -34,6 +34,8 @@ import shutil
 import tempfile
 import uuid
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -54,7 +56,7 @@ GET_F_ABC_REFS = [  # structure, eps, phi, q00, f, fitness, A, B, C, timesteps
     ('stripe', -0.9, 0.88, 1.0, -0.6617397486488582, 0.99983068778873, 0.4718018020045463, 0.021804312871064338, 0.005226927920294405, 2111),
 ]
 FIND_Q0STAR_REF = ('triangle', -0.9, 0.63, 0.9638831589507376, -0.5535949848941145)  # eps, phi, q0*, fmin
-EXCEPTION_REF = ('triangle', -0.9, 0.52, 'No local minimum found for q00.')  # original; commit B: ok
+EXCEPTION_REF = ('triangle', -0.9, 0.52, 'No local minimum found for q00.')  # original and C; commit B: ok
 STATUS_REF = ('triangle', -0.9, 0.51, 'No local minimum found for q00.')     # original and commit B
 GET_F_ABC_B_STEPS = {'triangle': 2000, 'honeycomb': 22000, 'stripe': 2000}  # commit B, measured
 # honeycomb (-0.9, 1.2, q00 = 1): converged f, the dt = 0.05 and dt = 0.01 trajectories agree
@@ -220,6 +222,9 @@ def test_relax_settings_tolerance_defaults():
     # B2: the seven legacy run_vals fields still construct; fTol, ATol default as measured
     r = Q.RelaxSettings(dt=0.1, totalT=1e6, stepT=1e2, divs=10, maxDepth=4, requiredFitness=0.99, minimumA=1e-6)
     assert (r.fTol, r.ATol) == (1e-12, 1e-6)
+    # C1-C3: fTol relative to |f|; ansatz noise seed 0, 1e-10; minPoints at least 5
+    assert (r.seed, r.noise) == (0, 1e-10)
+    assert Q.QScanSettings(passes=1, Deltaq=0.02, q00_Steps=21, Deltaq_Refinement=0.05).minPoints == 5
 
 
 def test_toy_get_f_abc_converges_with_stop_reason():
@@ -327,7 +332,9 @@ def test_toy_scan_density_status_codes():
     # ok: 3 passes; no local minimum and insufficient points: 1 pass; errors: none
     assert np.bincount(qs['phi_index'], minlength=5).tolist() == [63, 21, 21, 0, 0]
     assert qs['amplitudes'].shape == (105, 2)
-    assert set(qs) == {'phi_index', 'pass_index', 'q00', 'f', 'fitness', 'amplitudes', 'stop', 'steps'}
+    assert set(qs) == {'phi_index', 'pass_index', 'q00', 'f', 'fitness', 'amplitudes', 'stop', 'steps',
+                       'seed', 'noise'}
+    assert (int(qs['seed']), float(qs['noise'])) == (0, 1e-10)  # C2 provenance
     assert set(qs['stop']) == {Q.STOP_CONVERGED, Q.STOP_POOR_FIT} and (qs['steps'] > 0).all()
 
 
@@ -437,6 +444,15 @@ def test_b6_spline_stays_on_the_run_around_the_argmin():
     assert _table_status(f, short)[0] == Q.STATUS_INSUFFICIENT_POINTS
 
 
+def test_c3_min_points_means_at_least():
+    # C3 (D8, item 9a): a run of exactly minPoints = 5 accepted points (0.82-0.90) is
+    # enough; it then fails on the branch edge, as in test_b6. Under `<=` it was
+    # insufficient_points.
+    f = lambda q: 0.5*(q - 0.95)**2 - 0.01 if q < 0.91 else 0.5*(q - 1.06)**2
+    five = lambda q: 0.5 if (q < 0.81 or 0.91 < q < 0.97) else 1.0
+    assert _table_status(f, five)[0] == Q.STATUS_NO_LOCAL_MINIMUM
+
+
 # ---------------------------------------------------------------- (b), (c) logpfc_cpu vs the original
 
 try:
@@ -486,16 +502,35 @@ def test_logpfc_get_f_abc_against_original(ref, count_log_steps):
         assert f == pytest.approx(HONEYCOMB_CONVERGED_F, abs=1e-12)
         assert f < f_A - 8e-3
         return
-    # measured B - original: triangle f +6.99e-15 (one more post-convergence drift
-    # block), fitness +1.1e-16, A +2.8e-15, B +3.9e-15, C -2.2e-15; stripe 0 for all
+    # measured C - original (2026-11-12, Windows): triangle f +1.50e-14, fitness -1.5e-13,
+    # A +5.7e-15, B +8.5e-15, C -4.6e-15; stripe f +1.32e-14, fitness -5.0e-13, A +1.0e-14,
+    # B +2.4e-15, C -1.6e-15. The 1e-10 ansatz noise (C2) moves fitness most; with
+    # noise = 0, C equals commit B (test below).
+    assert f == pytest.approx(f_A, abs=3e-14)
+    assert (fitness, A, B, C) == pytest.approx((fitness_A, A_A, B_A, C_A), abs=1e-12)
+
+
+@cpu
+@pytest.mark.parametrize('structure', ['triangle', 'stripe'])
+def test_logpfc_noise_zero_reproduces_commit_b(structure):
+    # C1 alone (relative fTol) changes no stop here: with noise = 0 the values are commit
+    # B's (measured B - original: triangle f +6.99e-15, fitness +1.1e-16, A +2.8e-15,
+    # B +3.9e-15, C -2.2e-15; stripe 0 for all)
+    ref = next(r for r in GET_F_ABC_REFS if r[0] == structure)
+    _, eps, phi, q00, f_A, fitness_A, A_A, B_A, C_A, _ = ref
+    relax = dataclasses.replace(RELAX, noise=0.0)
+    m = Q.MinimizeFreeEnergy(LOG, LOG_PARAMS, structure, CELL, ANSATZ, relax, QSCAN)
+    f, fitness, A, B, C = (float(x) for x in m.Get_f_ABC(temp=eps, meanDensity=phi, q00=q00))
+    assert m.last_steps == GET_F_ABC_B_STEPS[structure]
     assert f == pytest.approx(f_A, abs=2e-14)
     assert (fitness, A, B, C) == pytest.approx((fitness_A, A_A, B_A, C_A), abs=1e-13)
 
 
 @cpu
 def test_logpfc_find_q0star_against_original():
-    # measured B - original at (-0.9, 0.63): q* +4.26e-10, fmin +1.7e-15 (126,000 steps
-    # against 133,027). Tolerances from the review's commit-B acceptance (q* 1e-8, fmin 1e-13);
+    # measured C - original at (-0.9, 0.63) (2026-11-12): q* +4.1e-11, fmin +1.5e-14,
+    # 392,000 steps: one pass-0 edge point grows a noise-seeded instability for 248,000
+    # steps before poor_fit (B: q* +4.26e-10, fmin +1.7e-15, 126,000 steps against 133,027). Tolerances from the review's commit-B acceptance (q* 1e-8, fmin 1e-13);
     # the largest interior moves measured were 7.1e-9 (eps -0.4, phi 0.74, where the
     # original itself was off the stored table by 7.1e-9) and 7.2e-10 elsewhere.
     structure, eps, phi, q0s, fmin = FIND_Q0STAR_REF
@@ -506,14 +541,15 @@ def test_logpfc_find_q0star_against_original():
 
 @cpu
 def test_logpfc_status_point_maps_to_no_local_minimum():
-    # (-0.9, 0.51): no_local_minimum in the original and in commit B (measured, 53,000
-    # steps). The original's status point (-0.9, 0.52) is ok in commit B (q* = stored to
-    # 4.5e-9), an acceptance the review shows is round-off dependent (item 8), so it is
-    # not asserted here.
+    # (-0.9, 0.51): no_local_minimum in the original, B and C (C measured: 66,000 steps).
+    # (-0.9, 0.52) was ok in commit B, a round-off-dependent acceptance (item 8); with the
+    # seeded noise (C2) it is no_local_minimum on every machine (C measured: 56,000 steps).
     structure, eps, phi, message = STATUS_REF
-    r = Q.scan_density(_log_minimizer(structure), eps, [phi])
-    assert (str(r['status'][0]), str(r['message'][0])) == (Q.STATUS_NO_LOCAL_MINIMUM, message)
-    assert np.isnan(r['q0star'][0]) and np.isnan(r['fmin'][0])
+    phi_c2 = EXCEPTION_REF[2]
+    r = Q.scan_density(_log_minimizer(structure), eps, [phi, phi_c2])
+    for k in range(2):
+        assert (str(r['status'][k]), str(r['message'][k])) == (Q.STATUS_NO_LOCAL_MINIMUM, message)
+        assert np.isnan(r['q0star'][k]) and np.isnan(r['fmin'][k])
 
 
 # ---------------------------------------------------------------- (d) logpfc_cpu analytics
