@@ -2,10 +2,15 @@
 
 (a) contract: a toy adapter whose state is a TWO-field tuple and whose relaxed
     f(q00) has a known minimum drives MinimizeFreeEnergy, Find_q0Star and
-    scan_density (status codes, checkpoint, resume) through the adapter names alone;
-(b) logpfc_cpu Get_f_ABC reproduces the ORIGINAL code at one point per structure;
-(c) logpfc_cpu Find_q0Star reproduces q0* and fmin, and an exception point maps
-    to 'no_local_minimum' through scan_density;
+    scan_density (status codes, stop reasons, checkpoint, resume) through the
+    adapter names alone; commit-B fixes B1 (dt honoured) and B2 (convergence
+    criterion, MaxDepthReached, no broad except) on short toy runs;
+(a') the Find_q0Star decision fixes B3-B6 on crafted f(q00) tables;
+(b) logpfc_cpu Get_f_ABC at one point per structure against the ORIGINAL code's
+    references (commit A was bit-identical to them; commit B moves them by the
+    measured amounts stated at each assertion);
+(c) logpfc_cpu Find_q0Star against the original, and a no_local_minimum point
+    through scan_density;
 (d) logpfc_cpu analytics: critical point, the legacy criticalTemp column, the
     spinodal and one-mode saddle-node bounds, the uniform free energy;
 (e) stdpfc_cpu: at g = 0 the triangle at -nbar is the mirror of the honeycomb at
@@ -15,11 +20,12 @@ References for (b) and (c) were captured from the unmodified
 warrior/phase-diagram code (phase-diagram-refs.json, 2026-11-09, pyfftw 0.15.1,
 numba 0.68.0, NumPy 2.5.4, 1 thread) with MinimizeFreeEnergy(8, 1, 0, lat, 0, 0, 2):
 model_vals[8], geometry_vals[1] x system_geometry_vals[0], mode_vals[0],
-run_vals[2], fit_vals[0]. The relocation is bit-identical, so they are asserted
-with ==. The (d) bounds are copied from warrior/phase-diagram/phase_stability_bounds.csv
-(hand-off addendum, 31 Oct 2026); that folder is temporary, so the values live here.
+run_vals[2], fit_vals[0]. Commit-B measurements: commit-b-review.md (2026-11-10,
+same versions). The (d) bounds are copied from
+warrior/phase-diagram/phase_stability_bounds.csv (hand-off addendum, 31 Oct 2026);
+that folder is temporary, so the values live here.
 
-Cost: (b) about 6 s, (c) about 40 s on an idle laptop core.
+Cost: (b) about 7 s, (c) about 40 s on an idle laptop core.
 """
 import inspect
 import os
@@ -48,7 +54,12 @@ GET_F_ABC_REFS = [  # structure, eps, phi, q00, f, fitness, A, B, C, timesteps
     ('stripe', -0.9, 0.88, 1.0, -0.6617397486488582, 0.99983068778873, 0.4718018020045463, 0.021804312871064338, 0.005226927920294405, 2111),
 ]
 FIND_Q0STAR_REF = ('triangle', -0.9, 0.63, 0.9638831589507376, -0.5535949848941145)  # eps, phi, q0*, fmin
-EXCEPTION_REF = ('triangle', -0.9, 0.52, 'No local minimum found for q00.')
+EXCEPTION_REF = ('triangle', -0.9, 0.52, 'No local minimum found for q00.')  # original; commit B: ok
+STATUS_REF = ('triangle', -0.9, 0.51, 'No local minimum found for q00.')     # original and commit B
+GET_F_ABC_B_STEPS = {'triangle': 2000, 'honeycomb': 22000, 'stripe': 2000}  # commit B, measured
+# honeycomb (-0.9, 1.2, q00 = 1): converged f, the dt = 0.05 and dt = 0.01 trajectories agree
+# (find-q0star-bug-review.md sec. 2, variant ii at t = 30)
+HONEYCOMB_CONVERGED_F = -0.7600664077521084
 CRITICAL_TEMP_TABLE = [  # legacy model_vals: beta, g, criticalTemp
     (1.0, -3, 2.064165490400111),
     (1.0, -2, 0.0603891377557797),
@@ -82,28 +93,38 @@ STABILITY_BOUNDS_CSV = [  # phase_stability_bounds.csv: eps, phi_minus, phi_plus
 
 class _ToySim:
     """Two fields (u, v) decaying exponentially towards a q00-dependent floor."""
-    def __init__(self, f_floor, fitness, amplitude, dt, u, v):
+    def __init__(self, f_floor, fitness, amplitude, dt, u, v, regime):
         self.f_floor, self.fitness, self.amplitude, self.dt = f_floor, fitness, amplitude, dt
-        self.u, self.v, self.t = u, v, 0.0
+        self.u, self.v, self.t, self.regime = u, v, 0.0, regime
 
 
 class ToyAdapter:
     """Implements exactly the names q0star calls; nothing else.
 
     temp shifts the floor; meanDensity selects the regime:
-      0 < rho < 1   f_floor = temp + rho^2 + K (q00 - QSTAR)^2, fitness 1 - (q00 - QSTAR)^2
-      rho == 2      f_floor linear in q00 (no local minimum)
-      rho == 3      fitness 0.5 everywhere (insufficient points)
-      rho < 0       build raises ValueError (error)
+      default (0 < rho < 1)  f_floor = temp + rho^2 + K (q00 - QSTAR)^2, fitness 1 - (q00 - QSTAR)^2
+      rho == 2     f_floor linear in q00 (no local minimum)
+      rho == 3     fitness 0.5 everywhere (insufficient points)
+      rho == 0.75  stiff: the state goes NaN once t >= T_STIFF unless dt <= DT_STABLE
+      rho == 0.9   the state goes NaN once t >= T_STIFF at any dt
+      rho == 0.6   seed: f constant, amplitude grows like e^t up to 0.3
+      rho == 0.4   step raises ValueError once t >= T_STIFF
+      rho < 0      build raises ValueError
+    `table=(f, fitness, A)`, callables of q00, replaces the regimes (decision tests):
+    the state is then stationary, so every evaluation converges after one block.
     """
     SLUG = 'toy'
     STRUCTURES = {'blob': 'blob'}
     QSTAR = 1.03
     K = 1.0
+    T_STIFF = 5.0
+    DT_STABLE = 0.05
 
-    def __init__(self):
+    def __init__(self, table=None):
+        self.table = table
         self.builds = 0
         self.builds_from_state = 0
+        self.dts = []
         self.steps = 0
         self.interrupt_at = None
 
@@ -122,7 +143,12 @@ class ToyAdapter:
         if meanDensity < 0:
             raise ValueError('negative density')
         self.builds += 1
-        if meanDensity == 2.0:
+        self.dts.append(dt)
+        regime = {0.75: 'stiff', 0.9: 'nan', 0.6: 'seed', 0.4: 'boom'}.get(float(meanDensity), 'plain')
+        amplitude = 0.3
+        if self.table is not None:
+            floor, fitness, amplitude = self.table[0](q00), self.table[1](q00), self.table[2](q00)
+        elif meanDensity == 2.0:
             floor, fitness = temp + q00, 1.0
         elif meanDensity == 3.0:
             floor, fitness = temp + (q00 - self.QSTAR)**2, 0.5
@@ -130,12 +156,15 @@ class ToyAdapter:
             floor = temp + meanDensity**2 + self.K*(q00 - self.QSTAR)**2
             fitness = 1.0 - (q00 - self.QSTAR)**2
         if state is None:
-            u, v = np.full(3, 0.5), np.full(5, -0.25)
+            if self.table is not None or regime == 'seed':
+                u, v = np.zeros(3), np.zeros(5)
+            else:
+                u, v = np.full(3, 0.5), np.full(5, -0.25)
         else:
             assert isinstance(state, tuple) and len(state) == 2
             self.builds_from_state += 1
             u, v = state[0].copy(), state[1].copy()
-        return _ToySim(floor, fitness, 0.3, dt, u, v)
+        return _ToySim(floor, fitness, amplitude, dt, u, v, regime)
 
     def get_state(self, sim):
         return (sim.u.copy(), sim.v.copy())
@@ -158,20 +187,26 @@ class ToyAdapter:
         sim.u *= 1 - 0.5*sim.dt
         sim.v *= 1 - 1.0*sim.dt
         sim.t += sim.dt
+        late = sim.t >= self.T_STIFF
+        if late and (sim.regime == 'nan' or (sim.regime == 'stiff' and sim.dt > self.DT_STABLE)):
+            sim.u[...] = np.nan
+        if late and sim.regime == 'boom':
+            raise ValueError('toy step failed')
 
     def free_energy(self, sim):
         return sim.f_floor + np.mean(sim.u**2) + np.mean(sim.v**2)
 
     def diagnose(self, sim, structure, cell):
-        return Q.Diagnostics(fitness=sim.fitness, amplitudes=(sim.amplitude, 0.0), details={})
+        amplitude = min(0.3, 3e-6*np.exp(sim.t)) if sim.regime == 'seed' else sim.amplitude
+        return Q.Diagnostics(fitness=sim.fitness, amplitudes=(amplitude, 0.0), details={})
 
 
 TOY_RELAX = Q.RelaxSettings(dt=0.1, totalT=1e4, stepT=10.0, divs=10, maxDepth=4,
                             requiredFitness=0.99, minimumA=1e-6)
 
 
-def _toy_minimizer(adapter):
-    return Q.MinimizeFreeEnergy(adapter, {}, 'blob', {}, {}, TOY_RELAX, QSCAN)
+def _toy_minimizer(adapter, relax=TOY_RELAX):
+    return Q.MinimizeFreeEnergy(adapter, {}, 'blob', {}, {}, relax, QSCAN)
 
 
 def test_q0star_knows_no_model():
@@ -181,14 +216,73 @@ def test_q0star_knows_no_model():
         assert token not in src, token
 
 
-def test_toy_get_f_abc_relaxes_two_field_state():
+def test_relax_settings_tolerance_defaults():
+    # B2: the seven legacy run_vals fields still construct; fTol, ATol default as measured
+    r = Q.RelaxSettings(dt=0.1, totalT=1e6, stepT=1e2, divs=10, maxDepth=4, requiredFitness=0.99, minimumA=1e-6)
+    assert (r.fTol, r.ATol) == (1e-12, 1e-6)
+
+
+def test_toy_get_f_abc_converges_with_stop_reason():
     ad = ToyAdapter()
     m = _toy_minimizer(ad)
     f, fitness, A, B = m.Get_f_ABC(temp=0.1, meanDensity=0.5, q00=1.0)
-    assert f == pytest.approx(0.1 + 0.25 + (1.0 - ToyAdapter.QSTAR)**2, abs=1e-14)
+    assert f == pytest.approx(0.1 + 0.25 + (1.0 - ToyAdapter.QSTAR)**2, abs=1e-11)
     assert (fitness, A, B) == (1.0 - (1.0 - ToyAdapter.QSTAR)**2, 0.3, 0.0)
-    # the rollback path ran: the stagnating block was rebuilt from the opaque tuple state
-    assert ad.builds_from_state >= TOY_RELAX.maxDepth
+    assert m.last_stop == Q.STOP_CONVERGED
+    assert m.last_steps == ad.steps and m.last_steps % 100 == 0   # whole blocks, no rollback
+    assert ad.builds_from_state == 0
+
+
+def test_toy_rollback_refines_dt_through_two_field_state():
+    # B1: a block that goes NaN at dt = 0.1 is redone at dt/divs = 0.01 from the
+    # opaque tuple state and converges; with the dt ignored (commit A) every depth
+    # would rebuild at 0.1, go NaN again and stop with MaxDepthReached
+    ad = ToyAdapter()
+    m = _toy_minimizer(ad)
+    f, *_ = m.Get_f_ABC(temp=0.1, meanDensity=0.75, q00=1.0)
+    assert m.last_stop == Q.STOP_CONVERGED
+    assert np.isfinite(f) and f == pytest.approx(0.1 + 0.75**2 + (1.0 - ToyAdapter.QSTAR)**2, abs=1e-11)
+    assert ad.builds_from_state >= 1 and min(ad.dts) == pytest.approx(0.01)
+
+
+def test_toy_nan_stop_is_rejected():
+    # B2: NaN at every dt exhausts the rollback to maxDepth (dt 1e-5): stop 'nan',
+    # and Find_q0Star rejects such evaluations
+    ad = ToyAdapter()
+    m = _toy_minimizer(ad)
+    f, *_ = m.Get_f_ABC(temp=0.1, meanDensity=0.9, q00=1.0)
+    assert m.last_stop == Q.STOP_NAN and np.isfinite(f)
+    assert min(ad.dts) == pytest.approx(TOY_RELAX.dt/TOY_RELAX.divs**TOY_RELAX.maxDepth)
+    r = Q.scan_density(_toy_minimizer(ToyAdapter()), 0.1, [0.9])
+    assert str(r['status'][0]) == Q.STATUS_INSUFFICIENT_POINTS
+    assert set(r['qscan']['stop']) == {Q.STOP_NAN}
+
+
+def test_toy_amplitude_guard_waits_for_a_growing_seed():
+    # B2 criterion (iv): f is constant while the amplitude grows from 3e-6; f alone
+    # would "converge" after the first block (A = 0.066), the guard waits for A to settle
+    m = _toy_minimizer(ToyAdapter())
+    f, fitness, A, B = m.Get_f_ABC(temp=0.1, meanDensity=0.6, q00=1.0)
+    assert m.last_stop == Q.STOP_CONVERGED
+    assert A == 0.3 and m.last_steps == 300
+
+
+def test_toy_errors_are_not_swallowed():
+    # B2: only MaxDepthReached is caught; commit A's broad except returned the state
+    with pytest.raises(ValueError, match='toy step failed'):
+        _toy_minimizer(ToyAdapter()).Get_f_ABC(temp=0.1, meanDensity=0.4, q00=1.0)
+
+
+def test_toy_required_fitness_none():
+    # B2 / B5: with requiredFitness=None the amplitude is defined (commit A: unbound A,
+    # swallowed, one block) and the acceptance mask uses -inf (commit A: TypeError)
+    relax = Q.RelaxSettings(dt=0.1, totalT=1e4, stepT=10.0, divs=10, maxDepth=4,
+                            requiredFitness=None, minimumA=1e-6)
+    m = _toy_minimizer(ToyAdapter(), relax)
+    m.Get_f_ABC(temp=0.1, meanDensity=0.5, q00=1.0)
+    assert m.last_stop == Q.STOP_CONVERGED and m.last_steps > 100
+    q, fmin = m.Find_q0Star(temp=0.1, meanDensity=0.5)
+    assert q == pytest.approx(ToyAdapter.QSTAR, abs=1e-9)
 
 
 def test_toy_find_q0star_finds_known_minimum_and_records():
@@ -197,29 +291,44 @@ def test_toy_find_q0star_finds_known_minimum_and_records():
     recs = []
     q, fmin = m.Find_q0Star(temp=0.1, meanDensity=0.5, record=recs.append)
     assert q == pytest.approx(ToyAdapter.QSTAR, abs=1e-9)
-    assert float(fmin) == pytest.approx(0.1 + 0.25, abs=1e-12)
+    assert float(fmin) == pytest.approx(0.1 + 0.25, abs=1e-11)
     assert len(recs) == QSCAN.passes*QSCAN.q00_Steps
-    assert sorted(recs[0]) == ['amplitudes', 'f', 'fitness', 'pass', 'q00']
+    assert sorted(recs[0]) == ['amplitudes', 'f', 'fitness', 'pass', 'q00', 'steps', 'stop']
     assert [r['pass'] for r in recs[::QSCAN.q00_Steps]] == list(range(QSCAN.passes))
     assert recs[0]['amplitudes'] == (0.3, 0.0)
+    # pass-0 edges have fitness 1 - 0.23^2 < 0.99: those stop on the fitness test
+    assert all(r['stop'] == (Q.STOP_POOR_FIT if r['fitness'] < 0.99 else Q.STOP_CONVERGED) for r in recs)
+    assert sum(r['steps'] for r in recs) == ad.steps
     # record has no effect on the result
     q2, fmin2 = _toy_minimizer(ToyAdapter()).Find_q0Star(temp=0.1, meanDensity=0.5)
     assert (q2, float(fmin2)) == (q, float(fmin))
 
 
+def test_status_mapping_by_type():
+    assert Q.status_from_exception(Q.InsufficientPoints(Q.MSG_INSUFFICIENT_POINTS)) == \
+        (Q.STATUS_INSUFFICIENT_POINTS, Q.MSG_INSUFFICIENT_POINTS)
+    assert Q.status_from_exception(Q.NoLocalMinimum(Q.MSG_NO_LOCAL_MINIMUM)) == \
+        (Q.STATUS_NO_LOCAL_MINIMUM, Q.MSG_NO_LOCAL_MINIMUM)
+    # named exceptions only: a bare Exception is an error whatever its message
+    assert Q.status_from_exception(Exception(Q.MSG_NO_LOCAL_MINIMUM)) == \
+        (Q.STATUS_ERROR, 'Exception: ' + Q.MSG_NO_LOCAL_MINIMUM)
+    assert Q.status_from_exception(Q.MaxDepthReached('x'))[0] == Q.STATUS_ERROR
+
+
 def test_toy_scan_density_status_codes():
-    r = Q.scan_density(_toy_minimizer(ToyAdapter()), 0.1, [0.5, 2.0, 3.0, -1.0])
-    assert list(r['status']) == ['ok', 'no_local_minimum', 'insufficient_points', 'error']
+    r = Q.scan_density(_toy_minimizer(ToyAdapter()), 0.1, [0.5, 2.0, 3.0, -1.0, 0.4])
+    assert list(r['status']) == ['ok', 'no_local_minimum', 'insufficient_points', 'error', 'error']
     assert list(r['message']) == ['', Q.MSG_NO_LOCAL_MINIMUM, Q.MSG_INSUFFICIENT_POINTS,
-                                  'ValueError: negative density']
+                                  'ValueError: negative density', 'ValueError: toy step failed']
     assert r['q0star'][0] == pytest.approx(ToyAdapter.QSTAR, abs=1e-9)
     assert np.isnan(r['q0star'][1:]).all() and np.isnan(r['fmin'][1:]).all()
     assert np.isfinite(r['wall_s']).all()
     qs = r['qscan']
-    # ok: 3 passes; no local minimum and insufficient points: 1 pass; error: none
-    assert np.bincount(qs['phi_index'], minlength=4).tolist() == [63, 21, 21, 0]
+    # ok: 3 passes; no local minimum and insufficient points: 1 pass; errors: none
+    assert np.bincount(qs['phi_index'], minlength=5).tolist() == [63, 21, 21, 0, 0]
     assert qs['amplitudes'].shape == (105, 2)
-    assert set(qs) == {'phi_index', 'pass_index', 'q00', 'f', 'fitness', 'amplitudes'}
+    assert set(qs) == {'phi_index', 'pass_index', 'q00', 'f', 'fitness', 'amplitudes', 'stop', 'steps'}
+    assert set(qs['stop']) == {Q.STOP_CONVERGED, Q.STOP_POOR_FIT} and (qs['steps'] > 0).all()
 
 
 @pytest.fixture
@@ -257,6 +366,7 @@ def test_toy_scan_density_checkpoint_and_resume(ckdir):
     with np.load(tmp_path / Q.QSCAN_FILE) as z:
         assert z['q00'].size == fresh['qscan']['q00'].size
         np.testing.assert_array_equal(np.sort(z['f']), np.sort(fresh['qscan']['f']))
+        np.testing.assert_array_equal(np.sort(z['stop']), np.sort(fresh['qscan']['stop']))
 
     # a finished checkpoint is skipped entirely; a different density list is refused
     ad = ToyAdapter()
@@ -264,6 +374,67 @@ def test_toy_scan_density_checkpoint_and_resume(ckdir):
     assert ad.builds == 0
     with pytest.raises(ValueError):
         Q.scan_density(_toy_minimizer(ToyAdapter()), 0.1, [0.5], checkpoint=str(tmp_path))
+
+
+# ---------------------------------------------------------------- (a') Find_q0Star decisions (fixes B3-B6)
+#
+# Table-driven toy: f, fitness and A are functions of q00 and every evaluation
+# converges after one block, so these exercise the decision logic alone.
+
+def _table_find(f, fitness, A=lambda q: 0.3):
+    return _toy_minimizer(ToyAdapter(table=(f, fitness, A))).Find_q0Star(temp=0.0, meanDensity=0.5)
+
+
+def _table_status(f, fitness, A=lambda q: 0.3):
+    r = Q.scan_density(_toy_minimizer(ToyAdapter(table=(f, fitness, A))), 0.0, [0.5])
+    return str(r['status'][0]), float(r['q0star'][0])
+
+
+def test_b3_argmin_reads_the_filtered_range():
+    # global minimum at 1.06, a shallower one at 0.94; pass 0 rejects q00 <= 0.90 (6 points).
+    # Commit A read q00_range[7] = 0.94 for the argmin and converged on the shallow minimum
+    # (measured 2026-11-10: q* = 0.9400015702976096; B: 1.0599994347994302).
+    f = lambda q: -np.exp(-((q - 1.06)/0.035)**2) - 0.6*np.exp(-((q - 0.94)/0.035)**2)
+    q, _ = _table_find(f, lambda q: 0.5 if q < 0.91 else 1.0)
+    assert q == pytest.approx(1.06, abs=1e-4)
+
+
+def test_b4_only_minima_are_roots():
+    # f = -(q - 0.85)^2 (q - 1.15): minimum at 0.85, maximum at 1.05, lowest grid
+    # point at the window edge 1.2. Commit A took the root nearest 1.2, the maximum
+    # (measured 2026-11-10: q* = 1.0499999999999845, fmin 0.004).
+    q, _ = _table_find(lambda q: -(q - 0.85)**2*(q - 1.15), lambda q: 1.0)
+    assert q == pytest.approx(0.85, abs=1e-9)
+
+
+def test_b5_one_acceptance_mask():
+    # crystal points on [0.9, 1.1] with f = (q - 1)^2; outside, uniform states (A = 1e-8 <
+    # minimumA, fitness 1) at f = -1e-3, below the crystal. Commit A counted them out but
+    # fitted them in, so the argmin and the spline sat on the plateau (measured 2026-11-10:
+    # insufficient_points after re-centring on the plateau).
+    crystal = lambda q: 0.895 < q < 1.105
+    q, _ = _table_find(lambda q: (q - 1.0)**2 if crystal(q) else -1e-3, lambda q: 1.0,
+                       lambda q: 0.3 if crystal(q) else 1e-8)
+    assert q == pytest.approx(1.0, abs=1e-9)
+
+
+def test_b6_spline_stays_on_the_run_around_the_argmin():
+    # run 1 (q00 0.80-0.90) still falling where it ends, a rejected gap (0.92-0.96),
+    # run 2 (0.98-1.20) with a minimum at 1.06 above run 1's last point. The argmin is
+    # run 1's edge: a branch limit, not a minimum, and B says so in pass 0. Commit A
+    # splined across the gap and spent pass 1 on the bridging root (measured
+    # 2026-11-10: window 0.8893-0.9093, then no_local_minimum).
+    f = lambda q: 0.5*(q - 0.95)**2 - 0.01 if q < 0.91 else 0.5*(q - 1.06)**2
+    gap = lambda q: 0.5 if 0.91 < q < 0.97 else 1.0
+    recs = []
+    m = _toy_minimizer(ToyAdapter(table=(f, gap, lambda q: 0.3)))
+    with pytest.raises(Q.NoLocalMinimum):
+        m.Find_q0Star(temp=0.0, meanDensity=0.5, record=recs.append)
+    assert {r['pass'] for r in recs} == {0}
+    # minPoints applies to that run: 4 points (0.84-0.90) are too few although 16 are
+    # accepted in total (commit A, measured: no_local_minimum after pass 1)
+    short = lambda q: 0.5 if (q < 0.83 or 0.91 < q < 0.97) else 1.0
+    assert _table_status(f, short)[0] == Q.STATUS_INSUFFICIENT_POINTS
 
 
 # ---------------------------------------------------------------- (b), (c) logpfc_cpu vs the original
@@ -300,23 +471,46 @@ def _log_minimizer(structure):
 
 @cpu
 @pytest.mark.parametrize('ref', GET_F_ABC_REFS, ids=[r[0] for r in GET_F_ABC_REFS])
-def test_logpfc_get_f_abc_matches_original(ref, count_log_steps):
-    structure, eps, phi, q00, *expected, timesteps = ref
-    got = _log_minimizer(structure).Get_f_ABC(temp=eps, meanDensity=phi, q00=q00)
-    assert [float(x) for x in got] == expected
-    assert count_log_steps['n'] == timesteps
+def test_logpfc_get_f_abc_against_original(ref, count_log_steps):
+    structure, eps, phi, q00, f_A, fitness_A, A_A, B_A, C_A, steps_A = ref
+    m = _log_minimizer(structure)
+    f, fitness, A, B, C = (float(x) for x in m.Get_f_ABC(temp=eps, meanDensity=phi, q00=q00))
+    assert m.last_stop == Q.STOP_CONVERGED
+    # step counts are deterministic: criterion (iv) stops after the second block
+    # (original: 2112 / 1356 / 2111 through the swallowed max-depth exception)
+    assert count_log_steps['n'] == m.last_steps == GET_F_ABC_B_STEPS[structure]
+    if structure == 'honeycomb':
+        # B1: dt = 0.1 goes NaN in the first block; the original returned the t = 20
+        # transient, 8.230e-3 above the converged f (measured). Commit B integrates
+        # through it at reduced dt: +1.95e-13 from the converged trajectory (measured).
+        assert f == pytest.approx(HONEYCOMB_CONVERGED_F, abs=1e-12)
+        assert f < f_A - 8e-3
+        return
+    # measured B - original: triangle f +6.99e-15 (one more post-convergence drift
+    # block), fitness +1.1e-16, A +2.8e-15, B +3.9e-15, C -2.2e-15; stripe 0 for all
+    assert f == pytest.approx(f_A, abs=2e-14)
+    assert (fitness, A, B, C) == pytest.approx((fitness_A, A_A, B_A, C_A), abs=1e-13)
 
 
 @cpu
-def test_logpfc_find_q0star_matches_original():
+def test_logpfc_find_q0star_against_original():
+    # measured B - original at (-0.9, 0.63): q* +4.26e-10, fmin +1.7e-15 (126,000 steps
+    # against 133,027). Tolerances from the review's commit-B acceptance (q* 1e-8, fmin 1e-13);
+    # the largest interior moves measured were 7.1e-9 (eps -0.4, phi 0.74, where the
+    # original itself was off the stored table by 7.1e-9) and 7.2e-10 elsewhere.
     structure, eps, phi, q0s, fmin = FIND_Q0STAR_REF
     q, f = _log_minimizer(structure).Find_q0Star(temp=eps, meanDensity=phi)
-    assert (float(q), float(f)) == (q0s, fmin)
+    assert float(q) == pytest.approx(q0s, abs=1e-8)
+    assert float(f) == pytest.approx(fmin, abs=1e-13)
 
 
 @cpu
-def test_logpfc_exception_point_maps_to_status():
-    structure, eps, phi, message = EXCEPTION_REF
+def test_logpfc_status_point_maps_to_no_local_minimum():
+    # (-0.9, 0.51): no_local_minimum in the original and in commit B (measured, 53,000
+    # steps). The original's status point (-0.9, 0.52) is ok in commit B (q* = stored to
+    # 4.5e-9), an acceptance the review shows is round-off dependent (item 8), so it is
+    # not asserted here.
+    structure, eps, phi, message = STATUS_REF
     r = Q.scan_density(_log_minimizer(structure), eps, [phi])
     assert (str(r['status'][0]), str(r['message'][0])) == (Q.STATUS_NO_LOCAL_MINIMUM, message)
     assert np.isnan(r['q0star'][0]) and np.isnan(r['fmin'][0])
@@ -400,8 +594,8 @@ STD_EPS, STD_NBAR = -0.25, 0.25   # inside the one-mode hexagonal window |nbar| 
 
 @cpu
 def test_stdpfc_g0_triangle_mirrors_honeycomb():
-    # Measured 2026-11-09: bit-identical tuple (f 0.020967377878349205, fitness
-    # 0.9999995344356641, A 0.1324548908767042), 4111 steps each. Exact because
+    # Measured 2026-11-10 (commit B): bit-identical tuple (f 0.020967377878349205, fitness
+    # 0.9999995344356641, A 0.1324548908767042), 3000 steps each (commit A: 4111). Exact because
     # f[-n] = f[n] at g = 0, the dynamics are odd in n, and both structures
     # share one amplitude scale independent of the sign of nbar.
     tri = Q.MinimizeFreeEnergy(STD, STD_PARAMS, 'triangle', CELL, ANSATZ, RELAX, QSCAN)
