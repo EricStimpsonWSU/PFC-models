@@ -298,7 +298,7 @@ def test_toy_find_q0star_finds_known_minimum_and_records():
     assert q == pytest.approx(ToyAdapter.QSTAR, abs=1e-9)
     assert float(fmin) == pytest.approx(0.1 + 0.25, abs=1e-11)
     assert len(recs) == QSCAN.passes*QSCAN.q00_Steps
-    assert sorted(recs[0]) == ['amplitudes', 'f', 'fitness', 'pass', 'q00', 'steps', 'stop']
+    assert sorted(recs[0]) == ['amplitudes', 'dt_max', 'f', 'fitness', 'pass', 'q00', 'steps', 'stop']
     assert [r['pass'] for r in recs[::QSCAN.q00_Steps]] == list(range(QSCAN.passes))
     assert recs[0]['amplitudes'] == (0.3, 0.0)
     # pass-0 edges have fitness 1 - 0.23^2 < 0.99: those stop on the fitness test
@@ -332,7 +332,7 @@ def test_toy_scan_density_status_codes():
     # ok: 3 passes; no local minimum and insufficient points: 1 pass; errors: none
     assert np.bincount(qs['phi_index'], minlength=5).tolist() == [63, 21, 21, 0, 0]
     assert qs['amplitudes'].shape == (105, 2)
-    assert set(qs) == {'phi_index', 'pass_index', 'q00', 'f', 'fitness', 'amplitudes', 'stop', 'steps',
+    assert set(qs) == {'phi_index', 'pass_index', 'q00', 'f', 'fitness', 'amplitudes', 'stop', 'steps', 'dt_max',
                        'seed', 'noise'}
     assert (int(qs['seed']), float(qs['noise'])) == (0, 1e-10)  # C2 provenance
     assert set(qs['stop']) == {Q.STOP_CONVERGED, Q.STOP_POOR_FIT} and (qs['steps'] > 0).all()
@@ -668,3 +668,32 @@ def test_stdpfc_analytics_closed_form():
 def test_stdpfc_validate_params():
     with pytest.raises(ValueError):
         STD.validate_params(dict(beta=1.0, g=0.0, v0=2.0))
+
+
+# ---------------------------------------------------------------- D: adaptive dt
+def test_toy_adaptive_dt_grows_capped_and_matches_fixed():
+    """dtMax set: dt starts at dt, grows by <= dtGrow per block, never above dtMax, divides
+    stepT, is rebuilt from the state (time kept), gives the fixed-dt answer, and the
+    largest dt used is recorded."""
+    fixed_ad, adapt_ad = ToyAdapter(), ToyAdapter()
+    mf = _toy_minimizer(fixed_ad)
+    fixed = mf.Get_f_ABC(temp=0.0, meanDensity=0.5, q00=ToyAdapter.QSTAR)
+    relax = dataclasses.replace(TOY_RELAX, dtMax=0.5, dtRate=1e-3)
+    m = _toy_minimizer(adapt_ad, relax)
+    out = m.Get_f_ABC(temp=0.0, meanDensity=0.5, q00=ToyAdapter.QSTAR)
+    dts = adapt_ad.dts
+    assert m.last_stop == mf.last_stop == Q.STOP_CONVERGED
+    assert dts[0] == pytest.approx(0.1) and max(dts) > 0.15 and max(dts) <= 0.5 + 1e-12
+    assert m.last_dt_max == pytest.approx(max(dts))
+    assert all(b <= 2.0*a*(1 + 1e-12) for a, b in zip(dts, dts[1:]))
+    assert all(abs(10.0/d - round(10.0/d)) < 1e-9 for d in dts)
+    assert adapt_ad.builds_from_state == len(dts) - 1
+    assert m.last_steps < mf.last_steps
+    assert out[0] == pytest.approx(fixed[0], abs=1e-10)
+
+
+def test_toy_fixed_dt_unchanged_when_dtmax_none():
+    ad = ToyAdapter()
+    m = _toy_minimizer(ad)
+    m.Get_f_ABC(temp=0.0, meanDensity=0.5, q00=ToyAdapter.QSTAR)
+    assert ad.dts == [pytest.approx(0.1)] and ad.builds == 1 and m.last_dt_max == pytest.approx(0.1)

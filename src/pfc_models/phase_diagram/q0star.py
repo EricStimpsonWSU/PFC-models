@@ -139,6 +139,13 @@ class RelaxSettings:
     # C2 (item 8): relative ansatz noise from default_rng(seed); noise = 0 disables
     seed: int = 0
     noise: float = 1e-10
+    # D (adaptive dt): None keeps dt fixed (legacy). Otherwise dt starts at `dt` and,
+    # between stepT blocks, moves to dtMax / sqrt(1 + (r/dtRate)^2), clipped to [dt, dtMax],
+    # with r = max(|df|/|f|, |dA|/A) / stepT over the block; growth <= dtGrow per block.
+    dtMax: float | None = None
+    dtRate: float = 1e-8
+    dtGrow: float = 2.0
+    dtChecks: int = 10    # dt is adapted after each of dtChecks sub-blocks of a stepT block
 
 
 @dataclass(frozen=True)
@@ -197,7 +204,11 @@ class MinimizeFreeEnergy():
         self.ATol = relax.ATol
         self.seed = relax.seed
         self.noise = relax.noise
-        self.last_stop, self.last_steps = None, 0
+        self.dtMax = relax.dtMax
+        self.dtRate = relax.dtRate
+        self.dtGrow = relax.dtGrow
+        self.dtChecks = relax.dtChecks
+        self.last_stop, self.last_steps, self.last_dt_max = None, 0, float('nan')
 
         # q0* fitting parameters
         self.qscan = qscan
@@ -294,6 +305,25 @@ class MinimizeFreeEnergy():
             print(f't={t:0.6f}, Δt={ad.get_dt(sim):0.3e}, f={f:0.18f}, Δf={delta_f:0.5e}')
         return delta_f
 
+    def _adaptDt(self, sim, temp, meanDensity, q00, stepT, delta_f, f, A, A_last, verbose=False):
+        """D: next block's dt from the block's relative rate; rebuild only if it changes."""
+        ad = self.adapter
+        dt = ad.get_dt(sim)
+        r = max(abs(delta_f)/max(abs(f), 1e-300), abs(A - A_last)/max(A, 1e-300)) / stepT
+        target = self.dtMax/np.sqrt(1.0 + (r/self.dtRate)**2)
+        target = min(max(target, self.dt), self.dtMax, dt*self.dtGrow)
+        miniSteps = int(np.ceil(stepT/target - 1e-9))
+        new = stepT/miniSteps
+        if abs(new - dt) <= 1e-12*dt:
+            return sim
+        t = ad.get_time(sim)
+        sim = self._generateSim(temp, meanDensity, q00, new, ad.get_state(sim), verbose=verbose)
+        ad.set_time(sim, t)
+        self.last_dt_max = max(self.last_dt_max, new)
+        if verbose:
+            print(f'dt: {dt:0.3e} -> {new:0.3e} (r={r:0.3e})')
+        return sim
+
     # Get the f(meanDensity, q00) using system parameters specified in constructor
     def Get_f_ABC(self, temp, meanDensity, q00, maxDepth=None, verbose=False):
         """Relax the ansatz at fixed box scale q00; return (f, fitness, *amplitudes).
@@ -321,10 +351,23 @@ class MinimizeFreeEnergy():
         fLast = ad.free_energy(sim)
         A_last = ad.diagnose(sim, self.structure, self.cell).amplitudes[0]
         self.last_stop, self.last_steps = STOP_TOTALT, 0
+        self.last_dt_max = ad.get_dt(sim)
 
         for _ in range(steps):
             try:
-                delta_f = self._takeStep(sim=sim, temp=temp, meanDensity=meanDensity, q00=q00, stepT=stepT, divs=self.divs, maxDepth=maxDepth, verbose=verbose)
+                if self.dtMax is None:
+                    delta_f = self._takeStep(sim=sim, temp=temp, meanDensity=meanDensity, q00=q00, stepT=stepT, divs=self.divs, maxDepth=maxDepth, verbose=verbose)
+                else:  # D: same block, run as dtChecks sub-blocks with dt adapted after each
+                    f0, subT = fLast, stepT/self.dtChecks
+                    fs, As = fLast, A_last
+                    for _k in range(self.dtChecks):
+                        d_sub = self._takeStep(sim=sim, temp=temp, meanDensity=meanDensity, q00=q00, stepT=subT, divs=self.divs, maxDepth=maxDepth, verbose=verbose)
+                        fs_new = ad.free_energy(sim)
+                        As_new = ad.diagnose(sim, self.structure, self.cell).amplitudes[0]
+                        if _k < self.dtChecks - 1:
+                            sim = self._adaptDt(sim, temp, meanDensity, q00, subT, d_sub, fs_new, As_new, As, verbose)
+                        fs, As = fs_new, As_new
+                    delta_f = ad.free_energy(sim) - f0
             except MaxDepthReached as e:
                 if verbose:
                     print(f'Stop: {e}')
@@ -349,6 +392,8 @@ class MinimizeFreeEnergy():
             if abs(delta_f) <= self.fTol*abs(fLast) and abs(A - A_last) <= self.ATol*A:  # C1
                 self.last_stop = STOP_CONVERGED
                 break
+            if self.dtMax is not None:  # D: and between blocks
+                sim = self._adaptDt(sim, temp, meanDensity, q00, stepT/self.dtChecks, delta_f/self.dtChecks, fLast, A, A_last, verbose)
             A_last = A
 
         f = ad.free_energy(sim)
@@ -385,7 +430,8 @@ class MinimizeFreeEnergy():
                 if record is not None:
                     record({'pass': pass_idx, 'q00': float(q00), 'f': float(out[0]),
                             'fitness': float(out[1]), 'amplitudes': tuple(float(a) for a in out[2:]),
-                            'stop': self.last_stop, 'steps': self.last_steps})
+                            'stop': self.last_stop, 'steps': self.last_steps,
+                            'dt_max': self.last_dt_max})
 
             # B5 (D5): one acceptance mask, fitness AND amplitude, for count, argmin and spline
             rf = -np.inf if self.requiredFitness is None else self.requiredFitness
@@ -471,6 +517,8 @@ def _qscan_arrays(rows, n_amplitudes, seed=None, noise=None):
         'amplitudes': amplitudes,
         'stop': np.asarray([r.get('stop', '') for r in rows], dtype=str),
         'steps': np.asarray([r.get('steps', -1) for r in rows], dtype=np.int64),
+        # D: largest dt used per evaluation (NaN: not recorded)
+        'dt_max': np.asarray([r.get('dt_max', np.nan) for r in rows], dtype=float),
         # C2: the ansatz-noise provenance of every row (-1 / NaN: not recorded)
         'seed': np.asarray(-1 if seed is None else seed, dtype=np.int64),
         'noise': np.asarray(np.nan if noise is None else noise, dtype=float),
@@ -501,7 +549,8 @@ def _load_checkpoint(checkpoint, phi):
                          'f': float(q['f'][j]), 'fitness': float(q['fitness'][j]),
                          'amplitudes': tuple(float(a) for a in amps[~np.isnan(amps)]),
                          'stop': str(q['stop'][j]) if 'stop' in q else '',
-                         'steps': int(q['steps'][j]) if 'steps' in q else -1})
+                         'steps': int(q['steps'][j]) if 'steps' in q else -1,
+                         'dt_max': float(q['dt_max'][j]) if 'dt_max' in q else float('nan')})
     return old, done, rows
 
 
@@ -563,7 +612,8 @@ def scan_density(minimizer, temp, densities, checkpoint=None, verbose=False):
         for r in recs:
             rows.append({'phi_index': i, 'pass_index': r['pass'], 'q00': r['q00'], 'f': r['f'],
                          'fitness': r['fitness'], 'amplitudes': r['amplitudes'],
-                         'stop': r.get('stop', ''), 'steps': r.get('steps', -1)})
+                         'stop': r.get('stop', ''), 'steps': r.get('steps', -1),
+                         'dt_max': r.get('dt_max', float('nan'))})
             n_amplitudes = max(n_amplitudes, len(r['amplitudes']))
         if verbose:
             print(f'phi={phi[i]}: {status[i]} q0*={q0star[i]} fmin={fmin[i]} ({wall_s[i]:0.1f} s) {message[i]}')
