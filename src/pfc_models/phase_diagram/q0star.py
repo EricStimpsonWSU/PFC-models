@@ -209,6 +209,7 @@ class MinimizeFreeEnergy():
         self.dtGrow = relax.dtGrow
         self.dtChecks = relax.dtChecks
         self.last_stop, self.last_steps, self.last_dt_max = None, 0, float('nan')
+        self.last_state = None
 
         # q0* fitting parameters
         self.qscan = qscan
@@ -325,7 +326,7 @@ class MinimizeFreeEnergy():
         return sim
 
     # Get the f(meanDensity, q00) using system parameters specified in constructor
-    def Get_f_ABC(self, temp, meanDensity, q00, maxDepth=None, verbose=False):
+    def Get_f_ABC(self, temp, meanDensity, q00, maxDepth=None, verbose=False, state=None):
         """Relax the ansatz at fixed box scale q00; return (f, fitness, *amplitudes).
 
         B2: stepT blocks until a stop. Converged: |delta f| <= fTol |f| (C1) and
@@ -334,6 +335,9 @@ class MinimizeFreeEnergy():
         `self.last_stop` and its time-step count in `self.last_steps`; Find_q0Star
         passes both to `record`. The returned values are those of the state at the
         stop, as before.
+        
+        `state` (frozen_q): start from this field instead of the ansatz (no noise is
+        added); the field at the stop is left in `self.last_state`.
         """
         if maxDepth is None:
             maxDepth = self.maxDepth
@@ -347,7 +351,7 @@ class MinimizeFreeEnergy():
         _dt = stepT/miniSteps # keep stepT exact
 
         # initialize simulation
-        sim = self._generateSim(temp, meanDensity, q00, _dt, densityField=None, verbose=verbose)
+        sim = self._generateSim(temp, meanDensity, q00, _dt, densityField=state, verbose=verbose)
         fLast = ad.free_energy(sim)
         A_last = ad.diagnose(sim, self.structure, self.cell).amplitudes[0]
         self.last_stop, self.last_steps = STOP_TOTALT, 0
@@ -398,6 +402,7 @@ class MinimizeFreeEnergy():
 
         f = ad.free_energy(sim)
         diag = ad.diagnose(sim, self.structure, self.cell)
+        self.last_state = ad.get_state(sim)
         return (f, diag.fitness, *diag.amplitudes)
 
     # Find q0* (q00 that minimizes f)

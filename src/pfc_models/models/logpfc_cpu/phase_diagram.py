@@ -9,6 +9,7 @@ duplication.
     diagnose
     liquid_free_energy, liquid_chemical_potential
     spinodal, critical_point, liquid_spinodal, existence_bounds, scan_window
+    frozen_field, defect_diagnostics (optional: pfc_models.phase_diagram.frozen_q)
 
 Model: f = phi beta/2 (q0^2 + lap)^2 phi + phi ln phi + eps/2 phi^2 + g/3 phi^3
 + v0/4 phi^4 with v0 = 1 hard-wired in `simulation.py` (so `validate_params`
@@ -457,3 +458,71 @@ def scan_window(structure, params, temp, pad=0.02):
         return None
     lo, hi = bounds[_structure(structure).name]
     return (max(lo - pad, 0.5*lo), hi + pad)
+
+
+# ---------------------------------------------------------------- frozen field (frozen_q)
+
+def _k2_ref(cell):
+    """|k|^2 on the full FFT grid of the q00 = 1 box, shape (Ny, Nx)."""
+    Nx, Ny = cell['uNx']*cell['Mx'], cell['uNy']*cell['My']
+    Lx = cell['Mx']*4*np.pi/np.sqrt(3.0)
+    Ly = cell['My']*4*np.pi
+    kx = 2*np.pi*np.fft.fftfreq(Nx, d=Lx/Nx)
+    ky = 2*np.pi*np.fft.fftfreq(Ny, d=Ly/Ny)
+    KX, KY = np.meshgrid(kx, ky)
+    return KX**2 + KY**2
+
+
+class FrozenField:
+    """f(q) of one field frozen on the grid while the box scale q00 = q changes
+    (every wavevector k = q k_ref):
+        f(q) = <local(phi)> + beta/2 (q0^4 A0 - 2 q0^2 q^2 A1 + q^4 A2),
+        A_n = sum_k |phi_hat_k / N|^2 |k_ref|^(2n),
+    so q_opt = q0 sqrt(A1/A2), the unique minimum for A2 > 0."""
+
+    def __init__(self, state, params, temp, cell):
+        p = validate_params(params)
+        self.beta, self.g, self.v0, self.q0 = p['beta'], p['g'], p['v0'], p['q0']
+        phi = np.asarray(state, dtype=float)
+        N = phi.size
+        P = np.abs(np.fft.fft2(phi))**2 / N**2
+        K = _k2_ref(validate_cell(cell))
+        self.A = np.array([P.sum(), (P*K).sum(), (P*K*K).sum()])
+        self.local = float(np.mean(phi*np.log(phi) + temp/2*phi**2 + self.g/3*phi**3
+                                   + self.v0/4*phi**4))
+
+    def f(self, q):
+        s, q0 = np.asarray(q, dtype=float)**2, self.q0
+        A0, A1, A2 = self.A
+        return self.local + self.beta/2*(q0**4*A0 - 2*q0**2*s*A1 + s**2*A2)
+
+    def q_opt(self):
+        return self.q0*np.sqrt(self.A[1]/self.A[2])
+
+
+def frozen_field(state, params, temp, cell):
+    """FrozenField of `state` (a field from get_state) for pfc_models.phase_diagram.frozen_q."""
+    return FrozenField(state, params, temp, cell)
+
+
+PEAK_SPREAD_MAX = 0.20
+SUBQ_RATIO_MAX = 1e-3
+
+
+def defect_diagnostics(state, cell):
+    """Record-only defect screen (frozen_q, 2026-11-15). peak_spread: (max - min)/mean of
+    the heights above phibar of the periodic 8-neighbour local maxima; subq_ratio: the
+    largest |phi_hat|^2 at 0 < |k|/q < 0.95 over the largest |phi_hat|^2 (on the fixed
+    grid |k|/q = |k_ref|); defect_flag: either above PEAK_SPREAD_MAX / SUBQ_RATIO_MAX."""
+    phi = np.asarray(state, dtype=float)
+    m = phi.mean()
+    nb = [np.roll(np.roll(phi, a, 0), b, 1) for a in (-1, 0, 1) for b in (-1, 0, 1) if (a, b) != (0, 0)]
+    mask = np.all([phi >= x for x in nb], axis=0) & (phi > m)
+    h = phi[mask] - m
+    spread = float((h.max() - h.min())/h.mean()) if h.size else float('nan')
+    P = np.abs(np.fft.fft2(phi - m))**2
+    kr = np.sqrt(_k2_ref(validate_cell(cell)))
+    sub = (kr > 1e-9) & (kr < 0.95)
+    ratio = float(P[sub].max()/P.max()) if P.max() > 0 else float('nan')
+    return dict(peak_spread=spread, subq_ratio=ratio, n_peaks=int(mask.sum()),
+                defect_flag=bool(spread > PEAK_SPREAD_MAX or ratio > SUBQ_RATIO_MAX))

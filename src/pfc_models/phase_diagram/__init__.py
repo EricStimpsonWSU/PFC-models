@@ -13,6 +13,9 @@ Modules:
   one temperature: relaxation by time stepping, a q scan with spline refinement,
   and `scan_density` for one batch task (one structure, one temperature, one
   density range).
+* `frozen_q` - q0* and fmin by alternating relaxation and the closed-form
+  optimum of the frozen field's box scale (no q scan), with a branch-edge pass;
+  `MinimizeFrozenQ` mirrors `MinimizeFreeEnergy.Find_q0Star`.
 * `common_tangent` - coexistence between two free-energy branches of one conserved
   density (common tangent / Maxwell construction), the lower-envelope check over
   all branches at one temperature, and Maxwell-line assembly over temperatures.
